@@ -29,8 +29,8 @@ cluster.
 
 ## The Clustering Layer
 
-    D = number of dimensions
-    O = number of labels / clusters (output)
+    D = number of dimensions (input size)
+    O = number of labels / clusters (output size)
     B = batch size
 
     O * B (probability of belonging to a cluster)
