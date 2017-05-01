@@ -13,7 +13,8 @@ local dimensions = 4; -- number of dimensions of the embedding space
 local clusters = 14; -- number of clusters / classes
 local hiddenSize = 32; -- size of hidden layers
 local depth = 3; -- number of hidden layers
-local OptimState = {learningRate = 0.01}
+local OptimState = {learningRate = 0.01} -- 0.01
+local layerIndex = {}
 
 local function prettyprint(msg, tensor)
    print(msg)
@@ -25,13 +26,15 @@ local function prettyprint(msg, tensor)
    end
 end
 
+-- Create a simple ReLU network for testing.
+-- Use MSECriterion with this network.
 local function createTestModel()
    local s = nn.Sequential()
    s:add(nn.Linear(inputSize, hiddenSize))
    for i = 1, depth do
       s:add(nn.ReLU())
       if i < depth then
-         s:add(nn.Linear(hiddenSize, hiddenSize)) -- layer 3 ...
+         s:add(nn.Linear(hiddenSize, hiddenSize))
       end
    end
    s:add(nn.ReLU())
@@ -39,6 +42,7 @@ local function createTestModel()
    s:add(nn.SoftMax())
    return s:type(dtype)
 end
+
 
 local function createModel()
    
@@ -52,20 +56,22 @@ local function createModel()
    
    if depth == 0 then
       -- http://www.epcsirmaz.com/torch/torch_nn-simple_layers-linear.html
-      s:add(nn.Linear(inputSize, dimensions)) -- layer 1
+      s:add(nn.Linear(inputSize, dimensions))
    else
    
-      s:add(nn.Linear(inputSize, hiddenSize)) -- layer 1
+      s:add(nn.Linear(inputSize, hiddenSize))
       
       for i = 1, depth do
          -- http://www.epcsirmaz.com/torch/torch_nn-transfer_function_layers-relu.html
          s:add(nn.ReLU()) -- layer 2 ... depth*2
          if i < depth then
-            s:add(nn.Linear(hiddenSize, hiddenSize)) -- layer 3 ...
+            s:add(nn.Linear(hiddenSize, hiddenSize))
          end
       end   
-      s:add(nn.Linear(hiddenSize, dimensions)) -- layer depth*2+1
+      s:add(nn.Linear(hiddenSize, dimensions))
    end
+   
+   layerIndex["embedout"] = s:size()
    
    -- The clustering head
    -- -------------------
@@ -81,32 +87,35 @@ local function createModel()
    -- parameters: dimensions x clusters coordinates
    -- http://www.epcsirmaz.com/torch/torch_nn-simple_layers-euclidean.html -- https://github.com/torch/nn/blob/master/doc/simple.md#euclidean
    s:add(nn.Euclidean(dimensions, clusters)) -- layer depth*2+2
+   layerIndex["euclid"] = s:size()
    
    -- in: (batchSize x clusters) out: (batchSize x clusters)
    -- parameters: clusters scalars
    -- we learn just a single factor per cluster, which is 1/radius
    -- http://www.epcsirmaz.com/torch/torch_nn-simple_layers-mul.html
    
-   -- s:add(nn.MulConstant(.01))
+   -- -- s:add(nn.MulConstant(10))
 
-   local r = nn.CMul(clusters)
-   -- r.weight:fill(1) -- TODO
-   s:add(r)
+   -- local r = nn.CMul(clusters)
+   -- r.weight:fill(0.01) -- TODO
+   -- s:add(r)
    
    -- in: (batchSize x clusters) out: (batchSize x clusters)
    -- parameters: none
    -- http://www.epcsirmaz.com/torch/torch_nn-simple_layers-square.html
-   s:add(nn.Square())
+   -- -- s:add(nn.Square())
 
    -- in: (batchSize x clusters) out: (batchSize x clusters)
    -- parameters: none
    -- http://www.epcsirmaz.com/torch/torch_nn-transfer_function_layers-mulconstant.html
-   s:add(nn.MulConstant(-1.0))
+   -- -- s:add(nn.MulConstant(-1.0))
    
    -- in: (batchSize x clusters) out: (batchSize x clusters)
    -- parameters: none
    -- http://www.epcsirmaz.com/torch/torch_nn-simple_layers-exp.html
-   s:add(nn.Exp())
+   -- -- s:add(nn.Exp())
+
+   -- s:add(nn.SoftMax())
    
    return s:type(dtype)
 end
@@ -124,7 +133,7 @@ local function createSample()
 
    local x = torch.Tensor(datasize, inputSize)
    -- local y = torch.Tensor(datasize) -- target is class index
-   local y = torch.Tensor(datasize, clusters):zero()
+   local y = torch.Tensor(datasize, clusters):fill(-1)
    local targetlabels = torch.Tensor(datasize, 1)
 
    for i = 1, datasize do
@@ -146,8 +155,55 @@ local function createSample()
 end
 
 
-local model = createTestModel()
-local criterion = nn.MSECriterion():type(dtype) -- nn.AbsCriterion():type(dtype)
+-- ===========================================================================================
+
+local HingeEmbeddingCriterion, parent = torch.class('nn.MyHingeEmbeddingCriterion', 'nn.Criterion')
+
+function HingeEmbeddingCriterion:__init(margin)
+   parent.__init(self)
+   self.margin = margin or 1
+   self.sizeAverage = true
+end 
+ 
+function HingeEmbeddingCriterion:updateOutput(input,y)
+   self.buffer = self.buffer or input.new()
+
+   self.buffer:resizeAs(input):copy(input)
+   self.buffer[torch.eq(y, -1)] = 0
+   self.output = self.buffer:sum()
+   
+   self.buffer:fill(self.margin):add(-1, input)
+   self.buffer:cmax(0)
+   self.buffer[torch.eq(y, 1)] = 0
+   self.output = self.output + self.buffer:sum()
+   
+   if (self.sizeAverage == nil or self.sizeAverage == true) then 
+      self.output = self.output / input:nElement()
+   end
+
+   return self.output -- error
+end
+
+function HingeEmbeddingCriterion:updateGradInput(input, y)
+   self.gradInput:resizeAs(input):copy(y)
+   self.gradInput[torch.cmul(torch.eq(y, -1), torch.gt(input, self.margin))] = 0
+   
+   if (self.sizeAverage == nil or self.sizeAverage == true) then
+      self.gradInput:mul(1 / input:nElement())
+   end
+      
+   return self.gradInput 
+end
+
+-- ===========================================================================================
+
+local model = createModel()
+-- local criterion = nn.MSECriterion():type(dtype)
+-- local criterion = nn.AbsCriterion():type(dtype)
+
+-- https://github.com/torch/nn/blob/master/doc/criterion.md#hingeembeddingcriterion
+local criterion = nn.MyHingeEmbeddingCriterion(1.0):type(dtype)
+
 local x, y, targetlabels = createSample()
 local rep = 0
 
@@ -155,31 +211,28 @@ local params, gradParams = model:getParameters()
 
 function debug(err)
    rep = rep + 1
-   if rep < 10000 then return end
+   if rep < 1000 then return end
    rep = 0
    
    local output = model.output
-   local _, predictions = output:float():sort(2, true) -- class indices ordered by probability
+   local _, predictions = output:float():sort(2) -- class indices ordered by probability
    local correct = predictions:eq(
       targetlabels:expandAs(output)
    )
    local correctratio = correct:narrow(2, 1, 1):sum() / output:size(1)
 
+   
+   -- prettyprint("modelled embedding", model:get(layerIndex["embedout"]).output:t()) -- the last Linear layer outputting the embedded points
+
+   -- prettyprint("distances", model:get(layerIndex["euclid"]).output)
+   -- prettyprint("centres", model:get(layerIndex["euclid"]).weight)
+
+   -- prettyprint("out", output)
+   -- prettyprint("pred", predictions)
+   
    print(err, correctratio, OptimState.learningRate)
-   -- prettyprint("sample embedded", points:t())
-   -- prettyprint("modelled embedding", model:get(depth*2+1).output:t()) -- the last Linear layer outputting the embedded points
-   -- prettyprint("distances", model:get(depth*2+2).output:t()) -- the Euclidean
-   -- prettyprint("centres", model:get(depth*2+2).weight) -- the Euclidean
    
-   -- prettyprint("mult by radii", model:get(depth*2+4).output:t())
-   -- print("radii")
-   -- print(model:get(depth*2+4).weight) -- CMul
-   
-   -- prettyprint("res", model.output)
-   -- prettyprint("exp", model.output:t()) -- the pairwise probabilities of belonging to the clusters
-   
-   -- prettyprint("y", y:t())
-   
+   -- os.execute("sleep 1")
 end
 
 function feval(params)
