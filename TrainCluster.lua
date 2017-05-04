@@ -10,10 +10,10 @@ require 'cunn'
 dtype = 'torch.CudaTensor'
 
 local InputSize = 25; -- size of input
-local Dimensions = 4; -- number of dimensions of the embedding space
-local Clusters = 14; -- number of clusters / classes
+local Dimensions = 3; -- number of dimensions of the embedding space
+local Clusters = false; -- number of clusters / classes
 local HiddenSize = 32; -- size of hidden layers
-local Depth = 3; -- number of hidden layers
+local Depth = 4; -- number of hidden layers
 local OptimState = {learningRate = 0.01} -- 0.01
 local layerIndex = {}
 
@@ -77,16 +77,17 @@ end
 
 -- Create some sample data to test the network
 -- Returns:
+--   number of clusters
 --   x - input to the model
 --   y - -1/1 encoding
 --   targetlabels
 local function createSample(filename, create_y)
    
-   local data = require(filename)
+   local data, numclusters = require(filename)
    local datasize = #data
 
    local x = torch.Tensor(datasize, InputSize)
-   local y = torch.Tensor(datasize, Clusters):fill(-1)
+   local y = torch.Tensor(datasize, numclusters):fill(-1)
    local targetlabels = torch.Tensor(datasize, 1)
 
    for i = 1, datasize do
@@ -102,19 +103,20 @@ local function createSample(filename, create_y)
       targetlabels[i][1] = d.classnum+1
    end
    
-   return x:type(dtype), y:type(dtype), targetlabels:long()
+   return numclusters, x:type(dtype), y:type(dtype), targetlabels:long()
 end
 
 -- --------------------
 -- TRAIN
 -- --------------------
 
+local numclusters, x, y, targetlabels = createSample('../LearnPixels/output/train.lua', true)
+Clusters = numclusters
+
 local model = createModel()
 
 -- https://github.com/torch/nn/blob/master/doc/criterion.md#hingeembeddingcriterion
 local criterion = nn.HingeEmbeddingCriterion(1.0):type(dtype)
-
-local x, y, targetlabels = createSample('../LearnPixels/output/train.lua', true)
 
 local rep = 0
 
@@ -172,7 +174,7 @@ local ClusterCenters = model:get(layerIndex["euclid"]).weight:float()
 -- Run the model on the test set and see how it embeds the images
 -- in the low-dimensional space
 function test()
-   local input, _, testlabels = createSample('../LearnPixels/output/test.lua', false)
+   local _, input, _, testlabels = createSample('../LearnPixels/output/test.lua', false)
    model:forward(input)
    local embedding = model:get(layerIndex["embedout"]).output:float()
    
