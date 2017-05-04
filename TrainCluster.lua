@@ -9,10 +9,10 @@ require 'cunn'
 -- cutorch.setDevice(1)
 dtype = 'torch.CudaTensor'
 
-local InputSize = 25; -- size of input
+local InputSize = 784; -- size of input
 local Dimensions = 3; -- number of dimensions of the embedding space
 local Clusters = false; -- number of clusters / classes
-local HiddenSize = 32; -- size of hidden layers
+local HiddenSize = 128; -- size of hidden layers
 local Depth = 4; -- number of hidden layers
 local OptimState = {learningRate = 0.01} -- 0.01
 local layerIndex = {}
@@ -76,44 +76,23 @@ local function createModel()
 end
 
 -- Create some sample data to test the network
--- Returns:
---   number of clusters
---   x - input to the model
---   y - -1/1 encoding
---   targetlabels
 local function createSample(filename, create_y)
-   
-   local data, numclusters = require(filename)
-   local datasize = #data
-
-   local x = torch.Tensor(datasize, InputSize)
-   local y = torch.Tensor(datasize, numclusters):fill(-1)
-   local targetlabels = torch.Tensor(datasize, 1)
-
-   for i = 1, datasize do
-      local d = data[i]
-      
-      for j, pixel in ipairs(d.img) do
-         x[i][j] = pixel
-      end
-      
-      if create_y then
-        y[i][d.classnum+1] = 1
-      end
-      targetlabels[i][1] = d.classnum+1
-   end
-   
-   return numclusters, x:type(dtype), y:type(dtype), targetlabels:long()
+   print("Loading "..filename)
+   local d = require(filename)
+   return d.numclusters, d.x:type(dtype), d.y:type(dtype), d.targetlabels:long()
 end
 
 -- --------------------
 -- TRAIN
 -- --------------------
 
-local numclusters, x, y, targetlabels = createSample('../LearnPixels/output/train.lua', true)
+local numclusters, x, y, targetlabels = createSample('data/train.lua')
+local _, test_x, test_y, test_targetlabels = createSample('data/test.lua')
+
 Clusters = numclusters
 
 local model = createModel()
+model:training()
 
 -- https://github.com/torch/nn/blob/master/doc/criterion.md#hingeembeddingcriterion
 local criterion = nn.HingeEmbeddingCriterion(1.0):type(dtype)
@@ -124,31 +103,32 @@ local keep_training = true
 
 local params, gradParams = model:getParameters()
 
-function evaluate(err, prediction)
+-- Called by the training function
+function evaluate(train_err, train_prediction)
    rep = rep + 1
-   if rep < 1000 then return end
+   if rep < 500 then return end
    rep = 0
    
-   -- prediction == model.output
-   local _, predictions = prediction:float():sort(2) -- class indices ordered by distance
-   local correct = predictions:eq(
-      targetlabels:expandAs(prediction)
-   )
-   local correctratio = correct:narrow(2, 1, 1):sum() / prediction:size(1)
-
-   -- prettyprint("modelled embedding", model:get(layerIndex["embedout"]).output)
-
-   -- prettyprint("distances", model:get(layerIndex["euclid"]).output)
-   -- prettyprint("centres", model:get(layerIndex["euclid"]).weight)
-
-   -- prettyprint("out", output)
-   -- prettyprint("pred", predictions)
+   model:evaluate()
    
-   print("Error", err, "Correct%", correctratio*100)
+   local test_pred = model:forward(test_x)
+   model:zeroGradParameters()
+   local test_err = criterion:forward(test_pred, test_y)
+   -- TODO zero this too?
+   
+   local _, predictions = test_pred:float():sort(2) -- class indices ordered by distance
+   local correct = predictions:eq(
+      test_targetlabels:expandAs(test_pred)
+   )
+   local correctratio = correct:narrow(2, 1, 1):sum() / test_pred:size(1)
+
+   print("Train error", train_err, "Test error", test_err, "Test Correct%", correctratio*100)
    
    if correctratio > 0.99 then keep_training = false end
+   model:training()
 end
 
+-- The training function
 function feval(params)
    gradParams:zero()
    local pred = model:forward(x)
@@ -161,6 +141,7 @@ function feval(params)
    return err, gradParams
 end
 
+-- The training loop
 while keep_training do
    optim.adam(feval, params, OptimState)
 end
@@ -174,7 +155,8 @@ local ClusterCenters = model:get(layerIndex["euclid"]).weight:float()
 -- Run the model on the test set and see how it embeds the images
 -- in the low-dimensional space
 function test()
-   local _, input, _, testlabels = createSample('../LearnPixels/output/test.lua', false)
+   local _, input, _, testlabels = createSample('data/test.lua')
+   model:evaluate()
    model:forward(input)
    local embedding = model:get(layerIndex["embedout"]).output:float()
    
