@@ -9,13 +9,14 @@ require 'cunn'
 -- cutorch.setDevice(1)
 dtype = 'torch.CudaTensor'
 
-local InputSize = 784; -- size of input
-local Dimensions = 3; -- number of dimensions of the embedding space
-local Clusters = false; -- number of clusters / classes
-local HiddenSize = 128; -- size of hidden layers
-local Depth = 4; -- number of hidden layers
+local InputSize = 784 -- size of input
+local Dimensions = 3 -- number of dimensions of the embedding space
+local Clusters = false -- number of clusters / classes
+local HiddenSize = 512 -- size of hidden layers
+local Depth = 15 -- number of hidden layers
 local OptimState = {learningRate = 0.01} -- 0.01
 local layerIndex = {}
+local TestOnly = true -- whether to only try to train the embedding network without the cluster head
 
 local function prettyprint(msg, tensor)
    print(msg)
@@ -27,10 +28,32 @@ local function prettyprint(msg, tensor)
    end
 end
 
-local function createModel()
+-- Add the model that embeds points in a low-dimensional space
+local function _innerModel(s)
+   s:add(nn.Linear(InputSize, HiddenSize))
    
+   for i = 1, Depth do
+      -- http://www.epcsirmaz.com/torch/torch_nn-transfer_function_layers-relu.html
+      s:add(nn.ReLU())
+      if i < Depth then
+         s:add(nn.Linear(HiddenSize, HiddenSize))
+      end
+   end
+end
+
+-- Create model and criterion to test training
+local function createModelCriterion_test()
    local s = nn.Sequential()
+   _innerModel(s)
+   s:add(nn.Linear(HiddenSize, Clusters))
    
+   return s:type(dtype), nn.CrossEntropyCriterion():type(dtype)
+end
+
+-- Create model and criterion for learning clusters
+local function createModelCriterion()
+   local s = nn.Sequential()
+
    -- The embedding network
    -- ---------------------
 
@@ -41,19 +64,10 @@ local function createModel()
       -- http://www.epcsirmaz.com/torch/torch_nn-simple_layers-linear.html
       s:add(nn.Linear(InputSize, Dimensions))
    else
-   
-      s:add(nn.Linear(InputSize, HiddenSize))
-      
-      for i = 1, Depth do
-         -- http://www.epcsirmaz.com/torch/torch_nn-transfer_function_layers-relu.html
-         s:add(nn.ReLU())
-         if i < Depth then
-            s:add(nn.Linear(HiddenSize, HiddenSize))
-         end
-      end   
+      _innerModel(s)   
       s:add(nn.Linear(HiddenSize, Dimensions))
    end
-   
+
    layerIndex["embedout"] = s:size()
    
    -- The clustering head
@@ -62,9 +76,6 @@ local function createModel()
    -- InputSize == Dimensions
    -- outputSize == Clusters
 
-   -- Here we implement clustering based on the following distance function:
-   -- e^(-distance^2/radius^2)
-   
    -- calculate distance to cluster centers
    -- in: (batchSize x Dimensions) out: (batchSize x Clusters)
    -- parameters: Dimensions x Clusters coordinates
@@ -72,14 +83,15 @@ local function createModel()
    s:add(nn.Euclidean(Dimensions, Clusters))
    layerIndex["euclid"] = s:size()
    
-   return s:type(dtype)
+   -- https://github.com/torch/nn/blob/master/doc/criterion.md#hingeembeddingcriterion
+   return s:type(dtype), nn.HingeEmbeddingCriterion(1.0):type(dtype)
 end
 
 -- Create some sample data to test the network
 local function createSample(filename, create_y)
    print("Loading "..filename)
    local d = require(filename)
-   return d.numclusters, d.x:type(dtype), d.y:type(dtype), d.targetlabels:long()
+   return d.numclusters, d.x:type(dtype):mul(1/256), d.y:type(dtype), d.targetlabels:long()
 end
 
 -- --------------------
@@ -88,14 +100,21 @@ end
 
 local numclusters, x, y, targetlabels = createSample('data/train.lua')
 local _, test_x, test_y, test_targetlabels = createSample('data/test.lua')
+if TestOnly then -- CrossEntropyCriterion needs class index as target
+   y = targetlabels
+   test_y = test_targetlabels
+end
 
 Clusters = numclusters
 
-local model = createModel()
-model:training()
+local model, criterion
+if TestOnly then
+   model, criterion = createModelCriterion_test()
+else   
+   model, criterion = createModelCriterion()
+end
 
--- https://github.com/torch/nn/blob/master/doc/criterion.md#hingeembeddingcriterion
-local criterion = nn.HingeEmbeddingCriterion(1.0):type(dtype)
+model:training()
 
 local rep = 0
 
@@ -106,7 +125,7 @@ local params, gradParams = model:getParameters()
 -- Called by the training function
 function evaluate(train_err, train_prediction)
    rep = rep + 1
-   if rep < 500 then return end
+   if rep < 50 then return end
    rep = 0
    
    model:evaluate()
@@ -116,7 +135,12 @@ function evaluate(train_err, train_prediction)
    local test_err = criterion:forward(test_pred, test_y)
    -- TODO zero this too?
    
-   local _, predictions = test_pred:float():sort(2) -- class indices ordered by distance
+   local predictions
+   if TestOnly then
+      _, predictions = test_pred:float():sort(2, true) -- class indices ordered by probability (descending)
+   else
+      _, predictions = test_pred:float():sort(2) -- class indices ordered by distance (ascending)
+   end
    local correct = predictions:eq(
       test_targetlabels:expandAs(test_pred)
    )
@@ -124,7 +148,7 @@ function evaluate(train_err, train_prediction)
 
    print("Train error", train_err, "Test error", test_err, "Test Correct%", correctratio*100)
    
-   if correctratio > 0.99 then keep_training = false end
+   if correctratio > 0.9 then keep_training = false end
    model:training()
 end
 
@@ -155,7 +179,7 @@ local ClusterCenters = model:get(layerIndex["euclid"]).weight:float()
 -- Run the model on the test set and see how it embeds the images
 -- in the low-dimensional space
 function test()
-   local _, input, _, testlabels = createSample('data/test.lua')
+   local _, input, _, testlabels = createSample('data/new.lua')
    model:evaluate()
    model:forward(input)
    local embedding = model:get(layerIndex["embedout"]).output:float()

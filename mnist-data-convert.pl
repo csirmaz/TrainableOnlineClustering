@@ -57,13 +57,13 @@ THEEND
 
    for(my $i=0; $i<$datasize; $i++) {
       my $ii = $i+1;
-      $o .= "function mnist${ii}()\n";
+      $o .= "function __mnist${ii}()\n";
       for(my $j=0; $j<$numpixel; $j++) {
          $o .= 'x['.$ii.']['.($j+1).']='.$data->[$i]->[1]->[$j]."\n" if $data->[$i]->[1]->[$j];
       }
       $o .= 'y['.$ii.']['.($data->[$i]->[0]+1)."]=1\n" unless $is_new;
       $o .= 'targetlabels['.$ii.'][1] = '.($data->[$i]->[0]+1)."\n";
-      $o .= "end\nmnist${ii}()\n";
+      $o .= "end\n__mnist${ii}()\n";
    }
    
    $o .= "return {numclusters=$numclass,x=x,y=y,targetlabels=targetlabels}\n";
