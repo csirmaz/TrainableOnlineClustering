@@ -9,14 +9,16 @@ require 'cunn'
 -- cutorch.setDevice(1)
 dtype = 'torch.CudaTensor'
 
+require 'LazyEuclidean.lua'
+
 local InputSize = 784 -- size of input
 local Dimensions = 3 -- number of dimensions of the embedding space
 local Clusters = false -- number of clusters / classes
 local HiddenSize = 512 -- size of hidden layers
-local Depth = 15 -- number of hidden layers
+local Depth = 10 -- number of hidden layers
 local OptimState = {learningRate = 0.01} -- 0.01
 local layerIndex = {}
-local TestOnly = true -- whether to only try to train the embedding network without the cluster head
+local TestOnly = false -- whether to only try to train the embedding network without the cluster head
 
 local function prettyprint(msg, tensor)
    print(msg)
@@ -80,7 +82,10 @@ local function createModelCriterion()
    -- in: (batchSize x Dimensions) out: (batchSize x Clusters)
    -- parameters: Dimensions x Clusters coordinates
    -- http://www.epcsirmaz.com/torch/torch_nn-simple_layers-euclidean.html -- https://github.com/torch/nn/blob/master/doc/simple.md#euclidean
-   s:add(nn.Euclidean(Dimensions, Clusters))
+   local euc = nn.LazyEuclidean(Dimensions, Clusters, 0.1)
+   -- euc.weight:random(Clusters) -- distribute points better initially
+   prettyprint("euc", euc.weight)
+   s:add(euc)
    layerIndex["euclid"] = s:size()
    
    -- https://github.com/torch/nn/blob/master/doc/criterion.md#hingeembeddingcriterion
@@ -128,6 +133,9 @@ function evaluate(train_err, train_prediction)
    if rep < 50 then return end
    rep = 0
    
+   -- DEBUG
+   prettyprint("euc", model:get(layerIndex["euclid"]).weight)
+   
    model:evaluate()
    
    local test_pred = model:forward(test_x)
@@ -148,7 +156,7 @@ function evaluate(train_err, train_prediction)
 
    print("Train error", train_err, "Test error", test_err, "Test Correct%", correctratio*100)
    
-   if correctratio > 0.9 then keep_training = false end
+   if correctratio > 0.9 and not TestOnly then keep_training = false end
    model:training()
 end
 
