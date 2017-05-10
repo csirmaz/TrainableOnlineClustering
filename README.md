@@ -75,7 +75,7 @@ Training on more clusters may help by crowding the 3D space, as well
 as training the network on inputs that do not need to be collected into a
 cluster, but moved away from existing clusters.
 While this experiment uses images, the same clustering idea could be used
-with other types of data, including text, with a LSTM/GRU embedding network.
+with other types of data, including text, with an LSTM/GRU embedding network.
 
 ## Running
 
@@ -86,4 +86,4 @@ just the training data, but enough for our purposes). Copy it to
 and test set, as well as the "new" set containing the remaining 2 digits,
 and convert the data to Lua scripts.
 - Run `TrainCluster.lua` to train the network and then use it to embed the
-"new" images in 3D, and display it.
+"new" images in 3D, and display the result.
