@@ -20,7 +20,7 @@ are close to each other, and far from the points related to other classes.
 
 We do this by adding a "clustering head" to the neural net, which
 learns the centers of clusters related to each known class.
-The embedding net and the clustering are trained together on the labeled
+The embedding net and the clustering head are trained together on the labeled
 data.
 
 Then, when the system is used to classify the stream of data,
@@ -29,7 +29,7 @@ the low-dimensional space, where similar inputs will hopefully be close to
 each other, and dissimilar inputs be far from each other,
 making it possible to use classic clustering techniques to identify
 brand new clusters arising from a new class of inputs the system has not
-previously seen.
+previously seen (and better than by using a linear mapping e.g. PCA).
 
 ## The experiment
 
