@@ -1,12 +1,12 @@
 # TrainableOnlineClustering
 
-Exploring recognising unseen clusters with a neural network in an on-line
+Exploring recognizing unseen clusters with a neural network in an on-line
 setting
 
 ## The problem
 
-Given an initial, labelled batch of data, we aim to train a system
-that is capable of classify a stream of data, and recognise new classes
+Given an initial, labeled batch of data, we aim to train a system
+that is capable of classify a stream of data, and recognize new classes
 it has not yet seen.
 
 ## The idea
@@ -20,14 +20,14 @@ are close to each other, and far from the points related to other classes.
 
 We do this by adding a "clustering head" to the neural net, which
 learns the centers of clusters related to each known class.
-The embedding net and the clustering are trained together on the labelled
+The embedding net and the clustering are trained together on the labeled
 data.
 
 Then, when the system is used to classify the stream of data,
 the already trained embedding network is used to embed each incoming data point in
 the low-dimensional space, where similar inputs will hopefully be close to
 each other, and dissimilar inputs be far from each other,
-making it possible to use classic clustering techniques to idenitfy
+making it possible to use classic clustering techniques to identify
 brand new clusters arising from a new class of inputs the system has not
 previously seen.
 
@@ -35,9 +35,9 @@ previously seen.
 
 The system is implemented in Torch/nn,
 using a modified
-`[nn.Euclidean](http://www.epcsirmaz.com/torch/torch_nn-simple_layers-euclidean.html)`
+[`nn.Euclidean`](http://www.epcsirmaz.com/torch/torch_nn-simple_layers-euclidean.html)
 as the clustering layer, and
-`[nn.HingeEmbeddingCriterion](http://www.epcsirmaz.com/torch/torch_nn-criterions-hingeembeddingcriterion.html)`
+[`nn.HingeEmbeddingCriterion`](http://www.epcsirmaz.com/torch/torch_nn-criterions-hingeembeddingcriterion.html)
 as the criterion.
 This combination implements the idea perfectly, as this criterion
 will attract a point to its cluster center with a constant force regardless
