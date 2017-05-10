@@ -14,8 +14,8 @@ require 'LazyEuclidean.lua'
 local InputSize = 784 -- size of input
 local Dimensions = 3 -- number of dimensions of the embedding space
 local Clusters = false -- number of clusters / classes
-local HiddenSize = 512 -- size of hidden layers
-local Depth = 10 -- number of hidden layers
+local HiddenSize = 520 -- size of hidden layers
+local Depth = 7 -- number of hidden layers
 local OptimState = {learningRate = 0.01} -- 0.01
 local layerIndex = {}
 local TestOnly = false -- whether to only try to train the embedding network without the cluster head
@@ -24,7 +24,7 @@ local function prettyprint(msg, tensor)
    print(msg)
    for i = 1, tensor:size(1) do
       for j = 1, tensor:size(2) do
-         io.write(string.format("% .3e", tensor[i][j]))
+         io.write(string.format(" %+1.2f", tensor[i][j])) -- "% .3e"
       end
       io.write("\n")
    end
@@ -38,12 +38,13 @@ local function _innerModel(s)
       -- http://www.epcsirmaz.com/torch/torch_nn-transfer_function_layers-relu.html
       s:add(nn.ReLU())
       if i < Depth then
+         -- s:add(nn.Dropout(0.1))
          s:add(nn.Linear(HiddenSize, HiddenSize))
       end
    end
 end
 
--- Create model and criterion to test training
+-- Create model and criterion to test the embedding network only
 local function createModelCriterion_test()
    local s = nn.Sequential()
    _innerModel(s)
@@ -82,9 +83,8 @@ local function createModelCriterion()
    -- in: (batchSize x Dimensions) out: (batchSize x Clusters)
    -- parameters: Dimensions x Clusters coordinates
    -- http://www.epcsirmaz.com/torch/torch_nn-simple_layers-euclidean.html -- https://github.com/torch/nn/blob/master/doc/simple.md#euclidean
-   local euc = nn.LazyEuclidean(Dimensions, Clusters, 0.1)
-   -- euc.weight:random(Clusters) -- distribute points better initially
-   prettyprint("euc", euc.weight)
+   local euc = nn.LazyEuclidean(Dimensions, Clusters, 0.05)
+   print(("Min square center distance: %.2f"):format(euc:MinCenterDistance()))
    s:add(euc)
    layerIndex["euclid"] = s:size()
    
@@ -133,8 +133,8 @@ function evaluate(train_err, train_prediction)
    if rep < 50 then return end
    rep = 0
    
-   -- DEBUG
-   prettyprint("euc", model:get(layerIndex["euclid"]).weight)
+   local euc = model:get(layerIndex["euclid"])
+   print(("Min square center distance: %.2f"):format(euc:MinCenterDistance()))
    
    model:evaluate()
    
@@ -156,7 +156,7 @@ function evaluate(train_err, train_prediction)
 
    print("Train error", train_err, "Test error", test_err, "Test Correct%", correctratio*100)
    
-   if correctratio > 0.9 and not TestOnly then keep_training = false end
+   if correctratio > 0.93 and not TestOnly then keep_training = false end
    model:training()
 end
 
@@ -177,8 +177,6 @@ end
 while keep_training do
    optim.adam(feval, params, OptimState)
 end
-
-local ClusterCenters = model:get(layerIndex["euclid"]).weight:float()
 
 -- --------------------
 -- TEST

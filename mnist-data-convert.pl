@@ -11,9 +11,11 @@ use Data::Dumper;
 # - new - the remaining $NewClasses classes for evaluating the model on unseen classes
 
 my $infilename = 'data/mnist/train.csv'; # input file, the MNIST data in CSV format
-my $testratio = 0.3; # The ratio of data to use as the test data
-my $Classes = [0,1,2,4,5,6,7,8,3,9]; # The MNIST classes reordered so that new classes would be at the end
+my $TestRatio = 0.3; # The ratio of items to add to the test set
+my $Classes = [0,1,2,4,5,6,8,9,3,7]; # The MNIST classes reordered so that new classes would be at the end
 my $NewClasses = 2; # Number of classes at the end of $Classes to include in the new set
+my $NewRatio = 0.1; # Only add this ratio of items to the "new" set
+my $NewFromTestRatio = 0.01; # Add this many elements from the test set to the "new" set
 my $TrainFile = 'data/train.lua'; # Output file
 my $TestFile = 'data/test.lua'; # Output file
 my $NewFile = 'data/new.lua'; # Output file
@@ -44,16 +46,18 @@ sub write_lua {
    my $filename = shift; # output file
    my $is_new = shift; # bool; whether we are writing the new dataset
    
-   my $numclass = $is_new ? $NewClasses : (10 - $NewClasses);
+   my $numclass = $is_new ? ($NewFromTestRatio == 0 ? $NewClasses : 10) : (10 - $NewClasses);
    my $datasize = scalar(@$data);
    my $numpixel = scalar(@{$data->[0]->[1]});
 
    my $o = <<THEEND;
 require 'torch'
 local x = torch.Tensor($datasize, $numpixel):fill(0)
-local y = torch.Tensor($datasize, $numclass):fill(-1)
 local targetlabels = torch.Tensor($datasize, 1)
 THEEND
+
+   # If $is_new, y is unused
+   $o .= $is_new ? "local y = torch.Tensor(1)\n" : "local y = torch.Tensor($datasize, $numclass):fill(-1)\n";
 
    for(my $i=0; $i<$datasize; $i++) {
       my $ii = $i+1;
@@ -83,9 +87,14 @@ while(<$fh>) {
    
    my $outline = [$label, \@line];
    if ($label >= 10 - $NewClasses) {
-      push @newset, $outline;
+      if (rand() < $NewRatio) {
+         push @newset, $outline;
+      }
    }
-   elsif (rand() < $testratio) {
+   elsif (rand() < $TestRatio) {
+      if (rand() < $NewFromTestRatio) {
+         push @newset, $outline;
+      }
       push @testset, $outline;
    }
    else {
