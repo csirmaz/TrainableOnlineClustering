@@ -6,7 +6,7 @@ setting
 ## The problem
 
 Given an initial, labeled batch of data, we aim to train a system
-that is capable of classify a stream of data, and recognize new classes
+that is capable of classifying a stream of data and recognizing new classes
 it has not yet seen.
 
 ## The idea
