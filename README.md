@@ -52,9 +52,8 @@ The output of the embedding network is 3 numbers, so each image is
 represented by a point in 3D.
 
 I needed to modify the `nn.Euclidean` layer to ensure that the initial
-cluster centers are sufficiently far from each other, and to reduce its
-learning rate relative to the rest of the network.
-These were essential in getting the network able to learn the data.
+cluster centers are sufficiently far from each other.
+This was essential in getting the network able to learn the data.
 
 I trained the whole network on 8 classes only, the ones for the digits
 `0,1,2,4,5,6,8,9`. This dataset was split into a training dataset and

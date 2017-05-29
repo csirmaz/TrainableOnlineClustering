@@ -8,8 +8,11 @@ function Euclidean:__init(inputSize, outputSize, learningRateFactor)
 end
 
 -- Apply a factor to the learning rate to make the layer less responsive
+-- +----+
+-- |NOTE| optim functions do not call updateParameters, so this override has no effect.
+-- +----+
 function Euclidean:updateParameters(learningRate)
-   parent.updateParameters(learningRate * self.learningRateFactor)
+   parent.updateParameters(self, learningRate * self.learningRateFactor)
 end
 
 -- Distribute the points better initially

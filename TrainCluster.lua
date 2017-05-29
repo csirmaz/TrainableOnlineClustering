@@ -83,7 +83,7 @@ local function createModelCriterion()
    -- in: (batchSize x Dimensions) out: (batchSize x Clusters)
    -- parameters: Dimensions x Clusters coordinates
    -- http://www.epcsirmaz.com/torch/torch_nn-simple_layers-euclidean.html -- https://github.com/torch/nn/blob/master/doc/simple.md#euclidean
-   local euc = nn.LazyEuclidean(Dimensions, Clusters, 0.05)
+   local euc = nn.LazyEuclidean(Dimensions, Clusters, 1) -- See NOTE in LazyEuclidean
    print(("Min square center distance: %.2f"):format(euc:MinCenterDistance()))
    s:add(euc)
    layerIndex["euclid"] = s:size()
